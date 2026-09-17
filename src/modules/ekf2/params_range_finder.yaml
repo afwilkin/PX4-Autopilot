@@ -30,9 +30,20 @@ parameters:
         long: >-
           Experimental indoor terrain step handling. Zero disables the feature.
           Requires EKF2_HGT_REF=2 and EKF2_RNG_CTRL=2. Abrupt tilt-corrected
-          range changes exceeding this threshold and three standard deviations
-          of range difference noise are compared with IMU-predicted vertical motion.
-          A new surface must persist for at least 0.15 s and three samples.
+          range changes accumulated over up to 0.1 s are compared with
+          IMU-predicted vertical motion. All confirmed changes must exceed this
+          minimum size. Large changes exceeding three standard deviations of
+          range difference noise require three settled observations and 0.15 s.
+          Smaller persistent changes require a stable previous surface (at least
+          three observations spanning 0.1 s) and five settled new observations
+          over 0.25 s. Both their mean and latest distance must exceed the minimum
+          change. Settling tolerance is range standard deviation constrained to
+          0.05-0.1 m. This does not assume independent samples; persistent sensor
+          bias changes remain ambiguous. Probation starts at half this minimum
+          or twice the range standard deviation capped at 0.15 m, whichever is
+          larger. Without a stable baseline, candidates have 0.1 s to reach the
+          large-change noise gate. For one second after a confirmed step, a
+          return toward the previous surface can also start probation.
           Confirmation withholds range height and optical flow fusion for at most
           0.5 s. Confirmed changes update a persistent terrain offset, leaving
           vehicle height and vertical velocity unchanged. Normal range height

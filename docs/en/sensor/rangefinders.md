@@ -207,9 +207,27 @@ To enable it, set:
   The default `0` disables this feature and retains the existing estimator behavior.
 - [MPC_ALT_MODE](../advanced_config/parameter_reference.md#MPC_ALT_MODE) to `0` for manual altitude control without controller terrain following or terrain hold.
 
-The detector compares abrupt tilt-corrected range changes with IMU-predicted vertical displacement.
-A candidate must exceed both `EKF2_RNG_STEP` and three standard deviations of range difference noise, using [EKF2_RNG_NOISE](../advanced_config/parameter_reference.md#EKF2_RNG_NOISE) and [EKF2_RNG_SFE](../advanced_config/parameter_reference.md#EKF2_RNG_SFE).
-It requires at least three observations and 0.15 seconds of confirmation, with a tolerance of one range standard deviation (at least 0.05 m).
+The detector compares tilt-corrected range changes over a rolling window of up to 0.1 seconds with IMU-predicted vertical displacement.
+This allows a sharp edge to span multiple sensor observations, including when leaving a raised surface.
+All confirmed changes must exceed `EKF2_RNG_STEP`. There are two confirmation paths:
+
+- A large change also exceeding three standard deviations of range difference noise can be confirmed after at least three settled observations and 0.15 seconds.
+  The difference variance combines the previous and new surface range variances using [EKF2_RNG_NOISE](../advanced_config/parameter_reference.md#EKF2_RNG_NOISE) and [EKF2_RNG_SFE](../advanced_config/parameter_reference.md#EKF2_RNG_SFE).
+- A smaller persistent change can be confirmed after at least five settled observations and 0.25 seconds, provided the previous surface was also stable.
+  The previous surface uses at least three IMU-propagated observations spanning 0.1 seconds, selected from 0.04 to 0.3 seconds before detection.
+  Their total spread must fit the settling tolerance. Both the mean new distance and latest distance must differ from the previous surface mean by more than `EKF2_RNG_STEP`.
+  This path allows a table step to be detected when the configured distance-dependent uncertainty exceeds the step size.
+
+The settling tolerance is one configured range standard deviation, constrained to 0.05–0.1 m.
+New observations must stay within this tolerance of the first observation in the settling interval.
+This is a persistence heuristic, not a statistical guarantee: the detector does not divide uncertainty by the square root of sample count or assume independent noise.
+A persistent sensor bias change can still look like terrain; very noisy returns may fail to settle.
+Probation starts at the larger of half `EKF2_RNG_STEP` and twice the configured range standard deviation capped at 0.15 m (a maximum noise contribution of 0.3 m).
+Without a stable previous surface, a new candidate must reach the large-change noise gate within 0.1 seconds or normal fusion resumes, with a one-second cooldown.
+For one second after confirming a step, the detector retains the previous and current surface distances, propagated using IMU-predicted vertical motion.
+A return toward the previous surface can start probation once it exceeds the settling tolerance and use the recently confirmed surface as its stable baseline.
+This short memory is discarded across range-data gaps and does not track slow terrain changes indefinitely.
+If the endpoint changes during confirmation, this settling period restarts, but the overall 0.5-second deadline does not.
 It only detects transitions in flight with healthy, consecutive range observations separated by no more than 0.3 seconds.
 The confirmation window is bounded to 0.5 seconds; an expired window resumes normal fusion and prevents another candidate for one second.
 
@@ -217,6 +235,8 @@ Range height fusion and optical flow fusion are briefly withheld during confirma
 A confirmed step changes only terrain, including its covariance and terrain reset reporting; it does not reset vehicle altitude or vertical velocity.
 Raw range is never offset, and optical flow uses the new actual surface distance after confirmation.
 Minimum optical flow clearance protections remain active and can still command a climb.
+In this mode, range observation noise uses the configured sensor noise only: height and terrain uncertainty are already represented in the filter covariance.
+This prevents growing uncertainty in the room datum from also being added as sensor noise and progressively weakening height correction after repeated steps.
 
 The stored surface datum survives range loss, height recovery, reference fallback, and landing/takeoff within the same estimator session.
 It is initialized again after a full estimator reset or reboot.

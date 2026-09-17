@@ -572,9 +572,25 @@ private:
 	uint64_t _rng_step_last_sample{0};
 	uint64_t _rng_step_start{0};
 	uint64_t _rng_step_cooldown{0};
+	uint64_t _rng_step_candidate_start{0};
+	uint64_t _rng_step_last_confirmed{0};
+	float _rng_step_previous_surface{0.f}; ///< recent surface, propagated with IMU vertical motion
+	float _rng_step_current_surface{0.f}; ///< confirmed surface, propagated with IMU vertical motion
+	// Keep a short IMU-propagated history so an edge need not fit in one sample.
+	struct RangeStepSample {
+		uint64_t time_us{0};
+		float prediction{0.f};
+	};
+	static constexpr unsigned RNG_STEP_HISTORY_LENGTH = 32;
+	RangeStepSample _rng_step_history[RNG_STEP_HISTORY_LENGTH] {};
+	unsigned _rng_step_history_next{0};
 	float _rng_step_prediction{0.f};
 	float _rng_step_candidate{0.f};
+	float _rng_step_candidate_mean{0.f};
+	bool _rng_step_stable_baseline{false};
 	unsigned _rng_step_count{0};
+	bool _rng_step_gate_passed{false};
+	bool _rng_step_return_candidate{false};
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)
