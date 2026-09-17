@@ -249,12 +249,8 @@ menu "Zenoh publishers/subscribers"
 		bool "failure_detector_status"
 		default n
 
-	config ZENOH_PUBSUB_FIDUCIAL_MARKER_POS_REPORT
-		bool "fiducial_marker_pos_report"
-		default n
-
-	config ZENOH_PUBSUB_FIDUCIAL_MARKER_YAW_REPORT
-		bool "fiducial_marker_yaw_report"
+	config ZENOH_PUBSUB_FAILURE_INJECTION
+		bool "failure_injection"
 		default n
 
 	config ZENOH_PUBSUB_FIGURE_EIGHT_STATUS
@@ -537,6 +533,10 @@ menu "Zenoh publishers/subscribers"
 		bool "open_drone_id_arm_status"
 		default n
 
+	config ZENOH_PUBSUB_OPEN_DRONE_ID_BASIC_ID
+		bool "open_drone_id_basic_id"
+		default n
+
 	config ZENOH_PUBSUB_OPEN_DRONE_ID_OPERATOR_ID
 		bool "open_drone_id_operator_id"
 		default n
@@ -615,10 +615,6 @@ menu "Zenoh publishers/subscribers"
 
 	config ZENOH_PUBSUB_PPS_CAPTURE
 		bool "pps_capture"
-		default n
-
-	config ZENOH_PUBSUB_PREC_LAND_STATUS
-		bool "prec_land_status"
 		default n
 
 	config ZENOH_PUBSUB_PURE_PURSUIT_STATUS
@@ -821,10 +817,6 @@ menu "Zenoh publishers/subscribers"
 		bool "takeoff_status"
 		default n
 
-	config ZENOH_PUBSUB_TARGET_GNSS
-		bool "target_gnss"
-		default n
-
 	config ZENOH_PUBSUB_TASK_STACK_INFO
 		bool "task_stack_info"
 		default n
@@ -985,30 +977,6 @@ menu "Zenoh publishers/subscribers"
 		bool "velocity_limits"
 		default n
 
-	config ZENOH_PUBSUB_VTE_AID_SOURCE1D
-		bool "vte_aid_source1d"
-		default n
-
-	config ZENOH_PUBSUB_VTE_AID_SOURCE3D
-		bool "vte_aid_source3d"
-		default n
-
-	config ZENOH_PUBSUB_VTE_BIAS_INIT_STATUS
-		bool "vte_bias_init_status"
-		default n
-
-	config ZENOH_PUBSUB_VTE_INPUT
-		bool "vte_input"
-		default n
-
-	config ZENOH_PUBSUB_VTE_ORIENTATION
-		bool "vte_orientation"
-		default n
-
-	config ZENOH_PUBSUB_VTE_POSITION
-		bool "vte_position"
-		default n
-
 	config ZENOH_PUBSUB_VTOL_VEHICLE_STATUS
 		bool "vtol_vehicle_status"
 		default n
@@ -1096,8 +1064,7 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_EVENT
 	select ZENOH_PUBSUB_FAILSAFE_FLAGS
 	select ZENOH_PUBSUB_FAILURE_DETECTOR_STATUS
-	select ZENOH_PUBSUB_FIDUCIAL_MARKER_POS_REPORT
-	select ZENOH_PUBSUB_FIDUCIAL_MARKER_YAW_REPORT
+	select ZENOH_PUBSUB_FAILURE_INJECTION
 	select ZENOH_PUBSUB_FIGURE_EIGHT_STATUS
 	select ZENOH_PUBSUB_FIXED_WING_LATERAL_GUIDANCE_STATUS
 	select ZENOH_PUBSUB_FIXED_WING_LATERAL_SETPOINT
@@ -1168,6 +1135,7 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_OFFBOARD_CONTROL_MODE
 	select ZENOH_PUBSUB_ONBOARD_COMPUTER_STATUS
 	select ZENOH_PUBSUB_OPEN_DRONE_ID_ARM_STATUS
+	select ZENOH_PUBSUB_OPEN_DRONE_ID_BASIC_ID
 	select ZENOH_PUBSUB_OPEN_DRONE_ID_OPERATOR_ID
 	select ZENOH_PUBSUB_OPEN_DRONE_ID_SELF_ID
 	select ZENOH_PUBSUB_OPEN_DRONE_ID_SYSTEM
@@ -1188,7 +1156,6 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_POWER_BUTTON_STATE
 	select ZENOH_PUBSUB_POWER_MONITOR
 	select ZENOH_PUBSUB_PPS_CAPTURE
-	select ZENOH_PUBSUB_PREC_LAND_STATUS
 	select ZENOH_PUBSUB_PURE_PURSUIT_STATUS
 	select ZENOH_PUBSUB_PWM_INPUT
 	select ZENOH_PUBSUB_PX4IO_STATUS
@@ -1239,7 +1206,6 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_SENSORS_STATUS_IMU
 	select ZENOH_PUBSUB_SYSTEM_POWER
 	select ZENOH_PUBSUB_TAKEOFF_STATUS
-	select ZENOH_PUBSUB_TARGET_GNSS
 	select ZENOH_PUBSUB_TASK_STACK_INFO
 	select ZENOH_PUBSUB_TECS_STATUS
 	select ZENOH_PUBSUB_TELEMETRY_STATUS
@@ -1280,12 +1246,6 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_VEHICLE_THRUST_SETPOINT
 	select ZENOH_PUBSUB_VEHICLE_TORQUE_SETPOINT
 	select ZENOH_PUBSUB_VELOCITY_LIMITS
-	select ZENOH_PUBSUB_VTE_AID_SOURCE1D
-	select ZENOH_PUBSUB_VTE_AID_SOURCE3D
-	select ZENOH_PUBSUB_VTE_BIAS_INIT_STATUS
-	select ZENOH_PUBSUB_VTE_INPUT
-	select ZENOH_PUBSUB_VTE_ORIENTATION
-	select ZENOH_PUBSUB_VTE_POSITION
 	select ZENOH_PUBSUB_VTOL_VEHICLE_STATUS
 	select ZENOH_PUBSUB_VTX
 	select ZENOH_PUBSUB_WHEEL_ENCODERS
