@@ -208,44 +208,69 @@ To enable it, set:
 - [MPC_ALT_MODE](../advanced_config/parameter_reference.md#MPC_ALT_MODE) to `0` for manual altitude control without controller terrain following or terrain hold.
 
 The detector compares tilt-corrected range changes over a rolling window of up to 0.1 seconds with IMU-predicted vertical displacement.
+Across input gaps of up to 0.3 seconds, a stable pre-gap baseline allows comparison with the last observation, with an additional gate for vertical-velocity uncertainty accumulated during the gap.
+The normal rolling window stays at 0.1 seconds to avoid interpreting slow changes as abrupt steps.
 This allows a sharp edge to span multiple sensor observations, including when leaving a raised surface.
 All confirmed changes must exceed `EKF2_RNG_STEP`. There are two confirmation paths:
 
 - A large change also exceeding three standard deviations of range difference noise can be confirmed after at least three settled observations and 0.15 seconds.
   The difference variance combines the previous and new surface range variances using [EKF2_RNG_NOISE](../advanced_config/parameter_reference.md#EKF2_RNG_NOISE) and [EKF2_RNG_SFE](../advanced_config/parameter_reference.md#EKF2_RNG_SFE).
 - A smaller persistent change can be confirmed after at least five settled observations and 0.25 seconds, provided the previous surface was also stable.
-  The previous surface uses at least three IMU-propagated observations spanning 0.1 seconds, selected from 0.04 to 0.3 seconds before detection.
+  The previous surface uses at least three IMU-propagated observations spanning 0.1 seconds, selected from 0.04 to 0.3 seconds before detection (before the last pre-gap observation when bridging a gap).
   Their total spread must fit the settling tolerance. Both the mean new distance and latest distance must differ from the previous surface mean by more than `EKF2_RNG_STEP`.
   This path allows a table step to be detected when the configured distance-dependent uncertainty exceeds the step size.
 
-The settling tolerance is one configured range standard deviation, constrained to 0.05–0.1 m.
+The settling tolerance is the smaller of one configured range standard deviation and half `EKF2_RNG_STEP`, constrained to 0.02–0.1 m.
 New observations must stay within this tolerance of the first observation in the settling interval.
 This is a persistence heuristic, not a statistical guarantee: the detector does not divide uncertainty by the square root of sample count or assume independent noise.
 A persistent sensor bias change can still look like terrain; very noisy returns may fail to settle.
-Probation starts at the larger of half `EKF2_RNG_STEP` and twice the configured range standard deviation capped at 0.15 m (a maximum noise contribution of 0.3 m).
-Without a stable previous surface, a new candidate must reach the large-change noise gate within 0.1 seconds or normal fusion resumes, with a one-second cooldown.
-For one second after confirming a step, the detector retains the previous and current surface distances, propagated using IMU-predicted vertical motion.
-A return toward the previous surface can start probation once it exceeds the settling tolerance and use the recently confirmed surface as its stable baseline.
-This short memory is discarded across range-data gaps and does not track slow terrain changes indefinitely.
-If the endpoint changes during confirmation, this settling period restarts, but the overall 0.5-second deadline does not.
-It only detects transitions in flight with healthy, consecutive range observations separated by no more than 0.3 seconds.
-The confirmation window is bounded to 0.5 seconds; an expired window resumes normal fusion and prevents another candidate for one second.
+Probation normally starts at the larger of half `EKF2_RNG_STEP` and twice the configured range standard deviation capped at 0.15 m (a maximum noise contribution of 0.3 m).
+If the baseline spread is no more than the smaller of 0.03 m and one quarter of `EKF2_RNG_STEP`, the start gate instead uses the largest of half `EKF2_RNG_STEP`, 0.03 m, and three times that observed spread.
+This lets a persistent 0.127 m transition between adjacent 20-inch and 25-inch boxes start detection with `EKF2_RNG_STEP=0.09144` (0.3 ft), without reducing the noise used for normal range fusion.
+The surface tracker owns classification separately from EKF fusion. It has four states:
 
-Range height fusion and optical flow fusion are briefly withheld during confirmation.
-A confirmed step changes only terrain, including its covariance and terrain reset reporting; it does not reset vehicle altitude or vertical velocity.
-Raw range is never offset, and optical flow uses the new actual surface distance after confirmation.
+- **Tracking:** normal range height correction against the current terrain datum.
+- **Transition:** retain the pre-edge reference and propagate it with IMU vertical motion while an endpoint settles.
+- **Unresolved:** the classification budget or input continuity was lost; ordinary height correction remains disabled.
+- **Reacquiring:** collect a stable endpoint while applying only limited range height correction.
+
+Changing endpoints restarts the settling interval without discarding the original surface reference.
+For one second after confirmation, a return toward the previous surface can also start a transition using the confirmed reference.
+The transition budget ends at one second or 0.15 m of accumulated vertical-motion uncertainty, whichever comes first.
+The uncertainty budget integrates vertical-velocity standard deviation as correlated error; it is a conservative bridging heuristic, not an independent altitude measurement.
+An input gap longer than 0.3 seconds during a transition also enters unresolved recovery.
+Weak candidates without a stable baseline must reach the large-change noise gate within 0.1 seconds or enter recovery early.
+
+During a transition, range height and optical flow fusion are withheld.
+Exhausting the budget does **not** authorize full height correction against the old surface, and there is no blind cooldown.
+Recovery clips range innovation to ±0.05 m and uses observation variance of at least 0.25 m².
+These limits bound the measurement supplied to the EKF; they are not a guarantee of maximum physical aircraft displacement.
+Normal height reset paths cannot bypass this recovery policy.
+Optical flow remains withheld while the surface distance is unresolved; existing estimator validity checks continue to apply if aiding is unavailable.
+
+After at least five settled observations over 0.25 seconds, recovery can reanchor terrain if the original transition had credible surface-change evidence.
+This preserves aircraft altitude and accumulated covariance, but does not recover room-relative height lost during ambiguity.
+Reanchoring is reported separately from a normally confirmed step.
+Without credible terrain evidence, limited correction continues until the range innovation is within 0.05 m before returning to tracking.
+Noise recovery does not create a confirmed-surface reference.
+
+A confirmed step changes only terrain, including covariance and terrain reset reporting; it does not reset vehicle altitude or vertical velocity.
+Raw range is never offset, and optical flow uses the actual new surface distance after confirmation or reacquisition.
 Minimum optical flow clearance protections remain active and can still command a climb.
-In this mode, range observation noise uses the configured sensor noise only: height and terrain uncertainty are already represented in the filter covariance.
-This prevents growing uncertainty in the room datum from also being added as sensor noise and progressively weakening height correction after repeated steps.
+Range observation noise normally uses configured sensor noise only: datum uncertainty is already represented by filter covariance.
+The stored datum survives landing/takeoff and ordinary range loss within an estimator session, and resets on a full estimator reset or reboot.
+If range is lost while tracking rather than during a detected transition, unseen surface changes remain unobservable on reacquisition.
 
-The stored surface datum survives range loss, height recovery, reference fallback, and landing/takeoff within the same estimator session.
-It is initialized again after a full estimator reset or reboot.
-A transition during a sensor outage cannot be classified: reacquisition corrects height against the previously stored surface.
-This can move the altitude estimate if the surface changed while range was unavailable.
+The `estimator_range_step_status` topic records classification state, transitions, thresholds, sample intervals, bridge age/uncertainty, terrain changes and degraded recovery.
+The default log profile records it and raw `distance_sensor` updates without rate limiting.
+Diagnostic event timestamps use the delayed EKF horizon. The last event and terrain delta remain available between transitions.
 
 This is a heuristic, not an independent room-relative height measurement.
-Slow slopes, small steps, reflections that resemble steps, and simultaneous vertical motion remain ambiguous.
-Errors during transitions can persist and accumulate; IMU, conventional optical flow and downward range alone cannot guarantee drift-free room-relative altitude.
+A flap or sensor bias that stays stable long enough can still resemble terrain. Very noisy returns can prevent reacquisition, and actual vertical motion during long ambiguous transitions can accumulate error.
+IMU, conventional optical flow and downward range alone cannot guarantee drift-free room-relative altitude.
+
+Regression coverage includes the observation timing from log 241's gradual entry and chained exit, short range gaps, noise, real vertical motion, and prolonged ambiguity.
+A simple closed-loop vertical point-mass test checks repeated crossings against simulated actual height and vertical commands; it does not replace full vehicle simulation or flight validation.
 
 ## Testing
 

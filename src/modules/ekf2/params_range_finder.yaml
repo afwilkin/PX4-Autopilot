@@ -29,29 +29,28 @@ parameters:
         short: Minimum terrain step for range height reference
         long: >-
           Experimental indoor terrain step handling. Zero disables the feature.
-          Requires EKF2_HGT_REF=2 and EKF2_RNG_CTRL=2. Abrupt tilt-corrected
-          range changes accumulated over up to 0.1 s are compared with
-          IMU-predicted vertical motion. All confirmed changes must exceed this
-          minimum size. Large changes exceeding three standard deviations of
-          range difference noise require three settled observations and 0.15 s.
-          Smaller persistent changes require a stable previous surface (at least
-          three observations spanning 0.1 s) and five settled new observations
-          over 0.25 s. Both their mean and latest distance must exceed the minimum
-          change. Settling tolerance is range standard deviation constrained to
-          0.05-0.1 m. This does not assume independent samples; persistent sensor
-          bias changes remain ambiguous. Probation starts at half this minimum
-          or twice the range standard deviation capped at 0.15 m, whichever is
-          larger. Without a stable baseline, candidates have 0.1 s to reach the
-          large-change noise gate. For one second after a confirmed step, a
-          return toward the previous surface can also start probation.
-          Confirmation withholds range height and optical flow fusion for at most
-          0.5 s. Confirmed changes update a persistent terrain offset, leaving
-          vehicle height and vertical velocity unchanged. Normal range height
-          correction then resumes, including while hovering over the new surface.
-          Range loss retains the offset; changes during an outage cannot be
-          classified as steps. Slow slopes and simultaneous vertical motion are
-          ambiguous, and transition errors can accumulate. This does not guarantee
-          drift-free room-relative altitude. Use MPC_ALT_MODE=0 to avoid manual
+          Requires EKF2_HGT_REF=2 and EKF2_RNG_CTRL=2. IMU-propagated range
+          history detects abrupt changes, including input gaps up to 0.3 s
+          with a stable baseline and a vertical-motion uncertainty gate.
+          A tightly stable baseline permits a lower start threshold for small
+          steps. Confirmed changes must exceed this minimum. Large changes
+          require three settled observations over 0.15 s; smaller changes
+          require a stable baseline and five observations over 0.25 s.
+          Endpoint changes restart settling while preserving the original
+          surface reference. Range height and optical flow fusion are withheld
+          during classification, limited by 1 s total transition time or 0.15 m
+          accumulated vertical-motion uncertainty, whichever comes first.
+          Exhausting that budget enters degraded recovery, not ordinary height
+          fusion or a blind cooldown. Recovery limits the range innovation to
+          0.05 m and uses at least 0.25 m^2 observation variance. Optical flow
+          remains withheld until a surface is reacquired. A settled new surface
+          with credible transition evidence reanchors terrain while preserving
+          aircraft altitude; this is reported separately from a confirmed step.
+          Without that evidence, limited correction continues until height and
+          range agree. Reanchoring retains accumulated aircraft uncertainty and
+          cannot recover a lost room-relative datum. Persistent sensor bias,
+          moving surfaces and slow slopes remain ambiguous; this does not
+          guarantee drift-free altitude. Use MPC_ALT_MODE=0 to avoid manual
           terrain following; optical flow clearance protections still apply.
       type: float
       default: 0.0

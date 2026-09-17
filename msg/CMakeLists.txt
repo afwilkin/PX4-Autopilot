@@ -85,6 +85,7 @@ set(msg_files
 	EstimatorSelectorStatus.msg
 	EstimatorSensorBias.msg
 	EstimatorStates.msg
+	EstimatorRangeStepStatus.msg
 	EstimatorStatus.msg
 	EstimatorStatusFlags.msg
 	versioned/Event.msg

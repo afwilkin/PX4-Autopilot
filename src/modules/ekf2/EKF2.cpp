@@ -371,6 +371,7 @@ void EKF2::AdvertiseTopics()
 		// RNG advertise
 		if (_param_ekf2_rng_ctrl.get()) {
 			_estimator_aid_src_rng_hgt_pub.advertise();
+			_estimator_range_step_status_pub.advertise();
 		}
 
 #endif // CONFIG_EKF2_RANGE_FINDER
@@ -1121,6 +1122,7 @@ void EKF2::PublishAidSourceStatus(const hrt_abstime &timestamp)
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	// RNG height
 	PublishAidSourceStatus(timestamp, _ekf.aid_src_rng_hgt(), _status_rng_hgt_pub_last, _estimator_aid_src_rng_hgt_pub);
+	PublishAidSourceStatus(timestamp, _ekf.range_step_status(), _status_rng_step_pub_last, _estimator_range_step_status_pub);
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_RANGING_BEACON)

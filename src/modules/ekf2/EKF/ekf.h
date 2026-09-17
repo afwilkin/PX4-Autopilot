@@ -63,6 +63,7 @@
 #include <uORB/topics/estimator_aid_source1d.h>
 #include <uORB/topics/estimator_aid_source2d.h>
 #include <uORB/topics/estimator_aid_source3d.h>
+#include "aid_sources/range_finder/range_surface_tracker.hpp"
 
 #include "aid_sources/ZeroGyroUpdate.hpp"
 #include "aid_sources/ZeroVelocityUpdate.hpp"
@@ -127,6 +128,12 @@ public:
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	// range height
 	const auto &aid_src_rng_hgt() const { return _aid_src_rng_hgt; }
+	estimator_range_step_status_s range_step_status() const
+	{
+		auto status = _surface_tracker.status();
+		status.terrain = _state.terrain;
+		return status;
+	}
 
 	float getHaglRateInnov() const { return _rng_consistency_check.getInnov(); }
 	float getHaglRateInnovVar() const { return _rng_consistency_check.getInnovVar(); }
@@ -567,30 +574,9 @@ private:
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	estimator_aid_source1d_s _aid_src_rng_hgt {};
 
-	// The offset itself lives in _state.terrain (positive down), not in the sensor data.
+	// The persistent surface datum lives in _state.terrain, not in raw range.
 	bool _rng_step_initialized{false};
-	uint64_t _rng_step_last_sample{0};
-	uint64_t _rng_step_start{0};
-	uint64_t _rng_step_cooldown{0};
-	uint64_t _rng_step_candidate_start{0};
-	uint64_t _rng_step_last_confirmed{0};
-	float _rng_step_previous_surface{0.f}; ///< recent surface, propagated with IMU vertical motion
-	float _rng_step_current_surface{0.f}; ///< confirmed surface, propagated with IMU vertical motion
-	// Keep a short IMU-propagated history so an edge need not fit in one sample.
-	struct RangeStepSample {
-		uint64_t time_us{0};
-		float prediction{0.f};
-	};
-	static constexpr unsigned RNG_STEP_HISTORY_LENGTH = 32;
-	RangeStepSample _rng_step_history[RNG_STEP_HISTORY_LENGTH] {};
-	unsigned _rng_step_history_next{0};
-	float _rng_step_prediction{0.f};
-	float _rng_step_candidate{0.f};
-	float _rng_step_candidate_mean{0.f};
-	bool _rng_step_stable_baseline{false};
-	unsigned _rng_step_count{0};
-	bool _rng_step_gate_passed{false};
-	bool _rng_step_return_candidate{false};
+	RangeSurfaceTracker _surface_tracker;
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)

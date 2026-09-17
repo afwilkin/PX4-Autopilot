@@ -433,6 +433,8 @@ private:
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	hrt_abstime _status_rng_hgt_pub_last {0};
+	hrt_abstime _status_rng_step_pub_last {0};
+	uORB::PublicationMulti<estimator_range_step_status_s> _estimator_range_step_status_pub{ORB_ID(estimator_range_step_status)};
 
 	uORB::PublicationMulti<estimator_aid_source1d_s> _estimator_aid_src_rng_hgt_pub{ORB_ID(estimator_aid_src_rng_hgt)};
 

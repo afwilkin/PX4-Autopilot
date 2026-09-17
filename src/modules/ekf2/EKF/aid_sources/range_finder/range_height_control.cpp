@@ -46,31 +46,12 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 
 	static constexpr const char *HGT_SRC_NAME = "RNG";
 
-	// Integrate only predicted vertical motion between range samples. Do not include
-	// position corrections from range fusion in the step detector's reference.
 	if (rangeStepEnabled()) {
-		const float delta_range = -_state.vel(2) * imu_sample.delta_vel_dt;
-		_rng_step_prediction += delta_range;
-		_rng_step_candidate += delta_range;
-		_rng_step_candidate_mean += delta_range;
-		_rng_step_previous_surface += delta_range;
-		_rng_step_current_surface += delta_range;
+		_surface_tracker.predict(_time_delayed_us, -_state.vel(2) * imu_sample.delta_vel_dt,
+					 P(State::vel.idx + 2, State::vel.idx + 2));
 
-		for (auto &sample : _rng_step_history) {
-			sample.prediction += delta_range;
-		}
-	}
-
-	if (!rangeStepEnabled() || isTimedOut(_rng_step_last_sample, 300000)) {
-		_rng_step_last_sample = 0;
-		_rng_step_start = 0;
-	}
-
-	if (_rng_step_start != 0 && isTimedOut(_rng_step_start, 500000)) {
-		// Bound the confirmation window even when no new range sample arrives.
-		_rng_step_start = 0;
-		_rng_step_last_sample = 0;
-		_rng_step_cooldown = _time_delayed_us + 1000000;
+	} else {
+		_surface_tracker.interrupt();
 	}
 
 	bool rng_data_ready = false;
@@ -438,177 +419,48 @@ void Ekf::resetRangeHeight(const estimator_aid_source1d_s &aid_src)
 bool Ekf::updateRangeStep(estimator_aid_source1d_s &aid_src)
 {
 	if (!rangeStepEnabled() || !_rng_step_initialized || !_control_status.flags.in_air
-	    || !_control_status.flags.rng_hgt || !_fc.rng.intended() || !_range_sensor.isDataHealthy()
-	    || _fault_status.flags.bad_acc_vertical || !PX4_ISFINITE(aid_src.observation)) {
-		_rng_step_last_sample = 0;
-		_rng_step_start = 0;
+	    || !_control_status.flags.rng_hgt || !_fc.rng.intended() || _fault_status.flags.bad_acc_vertical) {
+		_surface_tracker.interrupt();
 		return false;
 	}
 
-	const uint64_t now = aid_src.timestamp_sample;
-	const float measurement = aid_src.observation;
-	const bool consecutive = _rng_step_last_sample != 0 && now > _rng_step_last_sample
-				 && now - _rng_step_last_sample <= 300000;
-	_rng_step_last_sample = now;
+	if (!_range_sensor.isDataHealthy() || !PX4_ISFINITE(aid_src.observation)) {
+		return _surface_tracker.blocksFlow();
+	}
 
-	// Use sensor noise, not height/terrain covariance: a step is a change between
-	// observations and does not become less observable as datum uncertainty grows.
-	const float noise = sqrtf(sq(_params.ekf2_rng_noise) + sq(_params.ekf2_rng_sfe * measurement));
-	auto step_threshold = [&](float prediction) {
-		// The difference contains noise from both surface distances. Using the
-		// current distance twice makes an exit harder to confirm than an entry.
-		const float prediction_variance = sq(_params.ekf2_rng_noise) + sq(_params.ekf2_rng_sfe * prediction);
-		return math::max(_params.ekf2_rng_step, 3.f * sqrtf(prediction_variance + sq(noise)));
-	};
-	const float tolerance = math::constrain(noise, 0.05f, 0.1f);
-	// Start probation before a smeared edge has already pulled height/velocity.
-	// Cap only the probation noise contribution; confirmation requires either
-	// a large change or stable observations on both sides of a persistent step.
-	const float start_threshold = math::max(0.5f * _params.ekf2_rng_step, 2.f * math::min(noise, 0.15f));
+	const auto action = _surface_tracker.update(aid_src.timestamp_sample, aid_src.observation,
+			    _params.ekf2_rng_step, _params.ekf2_rng_noise, _params.ekf2_rng_sfe, P(State::vel.idx + 2, State::vel.idx + 2), aid_src.innovation);
 
-	if (!consecutive) {
-		_rng_step_last_confirmed = 0;
-		_rng_step_start = 0;
-		_rng_step_history_next = 0;
+	switch (action) {
+	case RangeSurfaceTracker::Action::Hold:
+		return true;
 
-		for (auto &sample : _rng_step_history) {
-			sample = {};
-		}
-
-	} else if (_rng_step_start != 0) {
-		const float threshold = step_threshold(_rng_step_prediction);
-		_rng_step_gate_passed |= fabsf(measurement - _rng_step_prediction) > threshold;
-
-		if (!_rng_step_gate_passed && !_rng_step_return_candidate && !_rng_step_stable_baseline
-		    && now - _rng_step_start >= 100000) {
-			// Ordinary noise must not repeatedly withhold height corrections for
-			// the full settling window without evidence of a stable previous surface.
-			_rng_step_start = 0;
-			_rng_step_last_sample = 0;
-			_rng_step_cooldown = now + 1000000;
+	case RangeSurfaceTracker::Action::Confirm:
+	case RangeSurfaceTracker::Action::Reanchor: {
+			const float previous_terrain = _state.terrain;
+			resetTerrainToRng(aid_src);
+			_surface_tracker.setTerrainDelta(_state.terrain - previous_terrain);
+			_time_last_terrain_fuse = _time_delayed_us;
+			resetAidSourceStatusZeroInnovation(aid_src);
+			_rng_consistency_check = RangeFinderConsistencyCheck{};
+			_control_status.flags.rng_kin_consistent = true;
 			return false;
 		}
 
-		if (fabsf(measurement - _rng_step_prediction) < tolerance) {
-			// A single outlier or a surface crossed too briefly to confirm.
-			_rng_step_start = 0;
+	case RangeSurfaceTracker::Action::Recover:
+		// An expired classification budget is not permission for a full height
+		// correction. Bound the innovation and reduce its weight during reacquisition.
+		// Normal height-reset/timeout paths must not bypass this policy.
+		aid_src.observation_variance = math::max(aid_src.observation_variance, 0.25f);
+		sym::ComputeHaglInnovVar(P, aid_src.observation_variance, &aid_src.innovation_variance);
+		aid_src.innovation = math::constrain(aid_src.innovation, -0.05f, 0.05f);
+		aid_src.innovation_rejected = false;
+		fuseHaglRng(aid_src, true, false);
+		return true;
 
-		} else {
-			if (fabsf(measurement - _rng_step_candidate) <= tolerance) {
-				_rng_step_count++;
-				_rng_step_candidate_mean += (measurement - _rng_step_candidate_mean) / _rng_step_count;
-				const bool sustained_step = _rng_step_stable_baseline
-							    && now - _rng_step_candidate_start >= 250000 && _rng_step_count >= 5
-							    && fabsf(_rng_step_candidate_mean - _rng_step_prediction) > _params.ekf2_rng_step
-							    && fabsf(measurement - _rng_step_prediction) > _params.ekf2_rng_step;
-
-				if (now - _rng_step_candidate_start >= 150000 && _rng_step_count >= 3
-				    && (fabsf(measurement - _rng_step_prediction) > threshold || sustained_step)) {
-					resetTerrainToRng(aid_src);
-					_time_last_terrain_fuse = _time_delayed_us;
-					resetAidSourceStatusZeroInnovation(aid_src);
-					_rng_step_start = 0;
-					// Retain both observed surfaces briefly. A tilted beam can see
-					// an edge long enough to confirm it, then return more slowly.
-					_rng_step_last_confirmed = now;
-					_rng_step_previous_surface = _rng_step_prediction;
-					_rng_step_current_surface = measurement;
-					_rng_step_history_next = 0;
-
-					for (auto &sample : _rng_step_history) {
-						sample = {};
-					}
-
-					// The derivative discontinuity was terrain, not an obstruction.
-					_rng_consistency_check = RangeFinderConsistencyCheck{};
-					_control_status.flags.rng_kin_consistent = true;
-					return false;
-				}
-
-			} else {
-				// The edge can span several observations. Allow its endpoint to
-				// settle, but keep the original 0.5 s deadline and surface datum.
-				_rng_step_candidate = measurement;
-				_rng_step_candidate_mean = measurement;
-				_rng_step_candidate_start = now;
-				_rng_step_count = 1;
-			}
-
-			return true;
-		}
-
-	} else if (now >= _rng_step_cooldown) {
-		auto start_candidate = [&](float prediction, bool returning = false) {
-			// A stable pre-edge window permits confirmation from persistence,
-			// without treating the configured fusion uncertainty as white noise.
-			float sum = 0.f;
-			float minimum = INFINITY;
-			float maximum = -INFINITY;
-			unsigned count = 0;
-			uint64_t oldest = now;
-			uint64_t newest = 0;
-
-			for (const auto &sample : _rng_step_history) {
-				if (sample.time_us != 0 && now > sample.time_us
-				    && now - sample.time_us >= 40000 && now - sample.time_us <= 300000) {
-					sum += sample.prediction;
-					minimum = math::min(minimum, sample.prediction);
-					maximum = math::max(maximum, sample.prediction);
-					oldest = math::min(oldest, sample.time_us);
-					newest = math::max(newest, sample.time_us);
-					count++;
-				}
-			}
-
-			_rng_step_stable_baseline = count >= 3 && newest - oldest >= 100000
-						    && maximum - minimum <= tolerance;
-
-			if (_rng_step_stable_baseline) {
-				prediction = sum / count;
-			}
-
-			if (returning) {
-				// The recently confirmed surface already passed settling checks.
-				prediction = _rng_step_current_surface;
-				_rng_step_stable_baseline = true;
-			}
-
-			_rng_step_start = now;
-			_rng_step_prediction = prediction;
-			_rng_step_candidate = measurement;
-			_rng_step_candidate_mean = measurement;
-			_rng_step_candidate_start = now;
-			_rng_step_count = 1;
-			_rng_step_gate_passed = fabsf(measurement - prediction) > step_threshold(prediction);
-			_rng_step_return_candidate = returning;
-		};
-
-		const float return_change = measurement - _rng_step_current_surface;
-		const float previous_change = _rng_step_previous_surface - _rng_step_current_surface;
-
-		if (_rng_step_last_confirmed != 0 && now - _rng_step_last_confirmed <= 1000000
-		    && fabsf(return_change) > tolerance && return_change * previous_change > 0.f
-		    && fabsf(measurement - _rng_step_previous_surface) < fabsf(previous_change)) {
-			// Only a return toward a recently observed surface gets this early
-			// probation. IMU motion propagates both surfaces; the confirmation
-			// and settling checks still apply, with the same 0.5 s deadline.
-			start_candidate(_rng_step_current_surface, true);
-			return true;
-		}
-
-		// Compare against all recent samples, not just the immediately preceding
-		// one. Filtering and the sensor footprint can spread a sharp edge across
-		// multiple readings, especially when leaving a raised surface.
-		for (const auto &sample : _rng_step_history) {
-			if (sample.time_us != 0 && now > sample.time_us && now - sample.time_us <= 100000
-			    && fabsf(measurement - sample.prediction) > start_threshold) {
-				start_candidate(sample.prediction);
-				return true;
-			}
-		}
+	case RangeSurfaceTracker::Action::Fuse:
+		return false;
 	}
 
-	_rng_step_history[_rng_step_history_next] = {now, measurement};
-	_rng_step_history_next = (_rng_step_history_next + 1) % RNG_STEP_HISTORY_LENGTH;
 	return false;
 }

@@ -79,26 +79,7 @@ void Ekf::reset()
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	_rng_step_initialized = false;
-	_rng_step_last_sample = 0;
-	_rng_step_start = 0;
-	_rng_step_cooldown = 0;
-	_rng_step_candidate_start = 0;
-	_rng_step_last_confirmed = 0;
-	_rng_step_previous_surface = 0.f;
-	_rng_step_current_surface = 0.f;
-	_rng_step_history_next = 0;
-
-	for (auto &sample : _rng_step_history) {
-		sample = {};
-	}
-
-	_rng_step_prediction = 0.f;
-	_rng_step_candidate = 0.f;
-	_rng_step_candidate_mean = 0.f;
-	_rng_step_stable_baseline = false;
-	_rng_step_count = 0;
-	_rng_step_gate_passed = false;
-	_rng_step_return_candidate = false;
+	_surface_tracker = {};
 	_range_sensor.setPitchOffset(_params.ekf2_rng_pitch);
 	_range_sensor.setCosMaxTilt(_params.range_cos_max_tilt);
 	_range_sensor.setQualityHysteresis(_params.ekf2_rng_qlty_t);

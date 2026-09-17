@@ -62,8 +62,8 @@ void Ekf::controlOpticalFlowFusion(const imuSample &imu_delayed)
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 
 		// Consume but do not fuse samples while their surface scale is uncertain.
-		// Range step confirmation is bounded to 0.5 s and never offsets raw range.
-		if (rangeStepEnabled() && _rng_step_start != 0) {
+		// Use the same surface confidence policy as height fusion.
+		if (rangeStepEnabled() && _surface_tracker.blocksFlow()) {
 			return;
 		}
 

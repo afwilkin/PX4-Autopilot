@@ -213,6 +213,10 @@ menu "Zenoh publishers/subscribers"
 		bool "estimator_innovations"
 		default n
 
+	config ZENOH_PUBSUB_ESTIMATOR_RANGE_STEP_STATUS
+		bool "estimator_range_step_status"
+		default n
+
 	config ZENOH_PUBSUB_ESTIMATOR_SELECTOR_STATUS
 		bool "estimator_selector_status"
 		default n
@@ -1083,6 +1087,7 @@ config ZENOH_PUBSUB_ALL_SELECTION
 	select ZENOH_PUBSUB_ESTIMATOR_FUSION_CONTROL
 	select ZENOH_PUBSUB_ESTIMATOR_GPS_STATUS
 	select ZENOH_PUBSUB_ESTIMATOR_INNOVATIONS
+	select ZENOH_PUBSUB_ESTIMATOR_RANGE_STEP_STATUS
 	select ZENOH_PUBSUB_ESTIMATOR_SELECTOR_STATUS
 	select ZENOH_PUBSUB_ESTIMATOR_SENSOR_BIAS
 	select ZENOH_PUBSUB_ESTIMATOR_STATES
