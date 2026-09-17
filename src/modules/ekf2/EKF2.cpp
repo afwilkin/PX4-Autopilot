@@ -152,6 +152,7 @@ EKF2::EKF2(bool multi_mode, const px4::wq_config_t &config, bool replay_mode):
 #endif // CONFIG_EKF2_TERRAIN
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	_param_ekf2_rng_ctrl(_params->ekf2_rng_ctrl),
+	_param_ekf2_rng_step(_params->ekf2_rng_step),
 	_param_ekf2_rng_delay(_params->ekf2_rng_delay),
 	_param_ekf2_rng_noise(_params->ekf2_rng_noise),
 	_param_ekf2_rng_sfe(_params->ekf2_rng_sfe),

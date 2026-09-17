@@ -192,6 +192,41 @@ These include (non exhaustively):
 - [EKF2_RNG_SFE](../advanced_config/parameter_reference.md#EKF2_RNG_SFE) - Range finder range dependent noise scaler.
 - [EKF2_RNG_NOISE](../advanced_config/parameter_reference.md#EKF2_RNG_NOISE) - Measurement noise for range finder fusion
 
+## Indoor Terrain Steps with Range Height Reference
+
+The experimental [EKF2_RNG_STEP](../advanced_config/parameter_reference.md#EKF2_RNG_STEP) option handles abrupt surface changes when a downward rangefinder is the height reference.
+For example, flying from a floor over a table can change the terrain estimate while preserving vehicle altitude instead of commanding a climb.
+The terrain offset persists when hovering above the table, and ordinary range height correction resumes after the transition.
+Leaving the table can produce another terrain step.
+
+To enable it, set:
+
+- [EKF2_HGT_REF](../advanced_config/parameter_reference.md#EKF2_HGT_REF) to `2` (range).
+- [EKF2_RNG_CTRL](../advanced_config/parameter_reference.md#EKF2_RNG_CTRL) to `2` (enabled continuously).
+- [EKF2_RNG_STEP](../advanced_config/parameter_reference.md#EKF2_RNG_STEP) to a positive minimum step size in metres, for example `0.3`, and reboot.
+  The default `0` disables this feature and retains the existing estimator behavior.
+- [MPC_ALT_MODE](../advanced_config/parameter_reference.md#MPC_ALT_MODE) to `0` for manual altitude control without controller terrain following or terrain hold.
+
+The detector compares abrupt tilt-corrected range changes with IMU-predicted vertical displacement.
+A candidate must exceed both `EKF2_RNG_STEP` and three standard deviations of range difference noise, using [EKF2_RNG_NOISE](../advanced_config/parameter_reference.md#EKF2_RNG_NOISE) and [EKF2_RNG_SFE](../advanced_config/parameter_reference.md#EKF2_RNG_SFE).
+It requires at least three observations and 0.15 seconds of confirmation, with a tolerance of one range standard deviation (at least 0.05 m).
+It only detects transitions in flight with healthy, consecutive range observations separated by no more than 0.3 seconds.
+The confirmation window is bounded to 0.5 seconds; an expired window resumes normal fusion and prevents another candidate for one second.
+
+Range height fusion and optical flow fusion are briefly withheld during confirmation.
+A confirmed step changes only terrain, including its covariance and terrain reset reporting; it does not reset vehicle altitude or vertical velocity.
+Raw range is never offset, and optical flow uses the new actual surface distance after confirmation.
+Minimum optical flow clearance protections remain active and can still command a climb.
+
+The stored surface datum survives range loss, height recovery, reference fallback, and landing/takeoff within the same estimator session.
+It is initialized again after a full estimator reset or reboot.
+A transition during a sensor outage cannot be classified: reacquisition corrects height against the previously stored surface.
+This can move the altitude estimate if the surface changed while range was unavailable.
+
+This is a heuristic, not an independent room-relative height measurement.
+Slow slopes, small steps, reflections that resemble steps, and simultaneous vertical motion remain ambiguous.
+Errors during transitions can persist and accumulate; IMU, conventional optical flow and downward range alone cannot guarantee drift-free room-relative altitude.
+
 ## Testing
 
 The easiest way to test the rangefinder is to vary the range and compare to the values detected by PX4.

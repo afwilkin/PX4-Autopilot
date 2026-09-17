@@ -46,6 +46,26 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 
 	static constexpr const char *HGT_SRC_NAME = "RNG";
 
+	// Integrate only predicted vertical motion between range samples. Do not include
+	// position corrections from range fusion in the step detector's reference.
+	if (rangeStepEnabled()) {
+		const float delta_range = -_state.vel(2) * imu_sample.delta_vel_dt;
+		_rng_step_prediction += delta_range;
+		_rng_step_candidate += delta_range;
+	}
+
+	if (!rangeStepEnabled() || isTimedOut(_rng_step_last_sample, 300000)) {
+		_rng_step_last_sample = 0;
+		_rng_step_start = 0;
+	}
+
+	if (_rng_step_start != 0 && isTimedOut(_rng_step_start, 500000)) {
+		// Bound the confirmation window even when no new range sample arrives.
+		_rng_step_start = 0;
+		_rng_step_last_sample = 0;
+		_rng_step_cooldown = _time_delayed_us + 1000000;
+	}
+
 	bool rng_data_ready = false;
 
 	if (_range_buffer) {
@@ -117,6 +137,12 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 				      innovation_variance,                       // innovation variance
 				      innov_gate);                               // innovation gate
 
+		// Handle steps before height fusion, startup and timeout/reset paths can
+		// interpret the innovation as vehicle motion.
+		if (updateRangeStep(aid_src)) {
+			return;
+		}
+
 		const bool measurement_valid = PX4_ISFINITE(aid_src.observation) && PX4_ISFINITE(aid_src.observation_variance);
 
 		// z special case if there is bad vertical acceleration data, then don't reject measurement,
@@ -142,7 +168,8 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 						      && (_params.ekf2_rng_ctrl == static_cast<int32_t>(RngCtrl::CONDITIONAL))
 						      && isConditionalRangeAidSuitable();
 
-		const bool do_range_aid = (_control_status.flags.rng_terrain || _control_status.flags.rng_hgt)
+		const bool do_range_aid = (_control_status.flags.rng_terrain || _control_status.flags.rng_hgt
+					   || (rangeStepEnabled() && _rng_step_initialized))
 					  && (_params.ekf2_rng_ctrl == static_cast<int32_t>(RngCtrl::ENABLED));
 
 		if (_control_status.flags.rng_hgt) {
@@ -173,8 +200,16 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 					_height_sensor_ref = HeightSensor::RANGE;
 
 					_information_events.flags.reset_hgt_to_rng = true;
-					resetAltitudeTo(aid_src.observation, aid_src.observation_variance);
-					_state.terrain = 0.f;
+
+					if (rangeStepEnabled() && _rng_step_initialized) {
+						resetRangeHeight(aid_src);
+
+					} else {
+						resetAltitudeTo(aid_src.observation, aid_src.observation_variance);
+						_state.terrain = 0.f;
+						_rng_step_initialized = rangeStepEnabled();
+					}
+
 					resetAidSourceStatusZeroInnovation(aid_src);
 					_control_status.flags.rng_hgt = true;
 					stopRngTerrFusion();
@@ -202,7 +237,7 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 				if (do_conditional_range_aid) {
 					_height_sensor_ref = HeightSensor::RANGE;
 
-				} else if (_height_sensor_ref == HeightSensor::RANGE) {
+				} else if (_height_sensor_ref == HeightSensor::RANGE && !rangeStepEnabled()) {
 					_height_sensor_ref = HeightSensor::UNKNOWN;
 				}
 
@@ -223,7 +258,7 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 					ECL_WARN("%s height fusion reset required, all height sources failing", HGT_SRC_NAME);
 
 					_information_events.flags.reset_hgt_to_rng = true;
-					resetAltitudeTo(aid_src.observation - _state.terrain);
+					resetRangeHeight(aid_src);
 					resetAidSourceStatusZeroInnovation(aid_src);
 
 					// reset vertical velocity if no valid sources available
@@ -241,7 +276,13 @@ void Ekf::controlRangeHaglFusion(const imuSample &imu_sample)
 						stopRngTerrFusion();
 
 					} else if (starting_conditions_passing) {
-						resetTerrainToRng(aid_src);
+						if (rangeStepEnabled() && _rng_step_initialized) {
+							resetRangeHeight(aid_src);
+
+						} else {
+							resetTerrainToRng(aid_src);
+						}
+
 						resetAidSourceStatusZeroInnovation(aid_src);
 					}
 				}
@@ -366,4 +407,84 @@ void Ekf::stopRngHgtFusion()
 void Ekf::stopRngTerrFusion()
 {
 	_control_status.flags.rng_terrain = false;
+}
+
+bool Ekf::rangeStepEnabled() const
+{
+	return _params.ekf2_rng_step > 0.f
+	       && _params.ekf2_rng_ctrl == static_cast<int32_t>(RngCtrl::ENABLED)
+	       && _params.ekf2_hgt_ref == static_cast<int32_t>(HeightSensor::RANGE);
+}
+
+void Ekf::resetRangeHeight(const estimator_aid_source1d_s &aid_src)
+{
+	// A range correction moves the vehicle relative to the stored surface. Moving
+	// both states would preserve the old HAGL error and discard the terrain datum.
+	const bool preserve_terrain = rangeStepEnabled() && _rng_step_initialized;
+	resetAltitudeTo(aid_src.observation - _state.terrain,
+			preserve_terrain ? aid_src.observation_variance : NAN, !preserve_terrain);
+}
+
+bool Ekf::updateRangeStep(estimator_aid_source1d_s &aid_src)
+{
+	if (!rangeStepEnabled() || !_rng_step_initialized || !_control_status.flags.in_air
+	    || !_control_status.flags.rng_hgt || !_fc.rng.intended() || !_range_sensor.isDataHealthy()
+	    || _fault_status.flags.bad_acc_vertical || !PX4_ISFINITE(aid_src.observation)) {
+		_rng_step_last_sample = 0;
+		_rng_step_start = 0;
+		return false;
+	}
+
+	const uint64_t now = aid_src.timestamp_sample;
+	const float measurement = aid_src.observation;
+	const bool consecutive = _rng_step_last_sample != 0 && now > _rng_step_last_sample
+				 && now - _rng_step_last_sample <= 300000;
+	_rng_step_last_sample = now;
+
+	// Use sensor noise, not height/terrain covariance: a step is a change between
+	// observations and does not become less observable as datum uncertainty grows.
+	const float noise = sqrtf(sq(_params.ekf2_rng_noise) + sq(_params.ekf2_rng_sfe * measurement));
+	const float threshold = math::max(_params.ekf2_rng_step, 3.f * sqrtf(2.f) * noise);
+	const float tolerance = math::max(0.05f, noise);
+
+	if (!consecutive) {
+		_rng_step_start = 0;
+
+	} else if (_rng_step_start != 0) {
+		if (fabsf(measurement - _rng_step_prediction) < tolerance) {
+			// A single outlier or a surface crossed too briefly to confirm.
+			_rng_step_start = 0;
+
+		} else {
+			if (fabsf(measurement - _rng_step_candidate) <= tolerance) {
+				_rng_step_count++;
+
+				if (now - _rng_step_start >= 150000 && _rng_step_count >= 3) {
+					resetTerrainToRng(aid_src);
+					_time_last_terrain_fuse = _time_delayed_us;
+					resetAidSourceStatusZeroInnovation(aid_src);
+					_rng_step_start = 0;
+					_rng_step_prediction = measurement;
+					// The derivative discontinuity was terrain, not an obstruction.
+					_rng_consistency_check = RangeFinderConsistencyCheck{};
+					_control_status.flags.rng_kin_consistent = true;
+					return false;
+				}
+
+			} else {
+				_rng_step_count = 0;
+			}
+
+			return true;
+		}
+
+	} else if (now >= _rng_step_cooldown && fabsf(measurement - _rng_step_prediction) > threshold) {
+		_rng_step_start = now;
+		_rng_step_candidate = measurement;
+		_rng_step_count = 1;
+		return true;
+	}
+
+	_rng_step_prediction = measurement;
+	return false;
 }

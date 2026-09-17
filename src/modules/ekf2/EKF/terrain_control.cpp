@@ -42,6 +42,13 @@
 
 void Ekf::initTerrain()
 {
+#if defined(CONFIG_EKF2_RANGE_FINDER)
+
+	if (rangeStepEnabled() && _rng_step_initialized) {
+		return;
+	}
+
+#endif
 	// assume a ground clearance
 	_state.terrain = -_gpos.altitude() + _params.ekf2_min_rng;
 

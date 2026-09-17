@@ -449,6 +449,7 @@ struct parameters {
 	// range finder fusion
 	int32_t ekf2_rng_ctrl{static_cast<int32_t>(RngCtrl::CONDITIONAL)};
 
+	float ekf2_rng_step{0.f};              ///< minimum abrupt terrain step (m), zero disables
 	float ekf2_rng_delay{5.0f};             ///< range finder measurement delay relative to the IMU (mSec)
 	float ekf2_rng_noise{0.1f};             ///< observation noise for range finder measurements (m)
 	float ekf2_rng_gate{5.0f};              ///< range finder fusion innovation consistency gate size (STD)

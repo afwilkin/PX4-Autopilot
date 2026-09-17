@@ -24,6 +24,31 @@ parameters:
         1: Enabled (conditional mode)
         2: Enabled
       default: 1
+    EKF2_RNG_STEP:
+      description:
+        short: Minimum terrain step for range height reference
+        long: >-
+          Experimental indoor terrain step handling. Zero disables the feature.
+          Requires EKF2_HGT_REF=2 and EKF2_RNG_CTRL=2. Abrupt tilt-corrected
+          range changes exceeding this threshold and three standard deviations
+          of range difference noise are compared with IMU-predicted vertical motion.
+          A new surface must persist for at least 0.15 s and three samples.
+          Confirmation withholds range height and optical flow fusion for at most
+          0.5 s. Confirmed changes update a persistent terrain offset, leaving
+          vehicle height and vertical velocity unchanged. Normal range height
+          correction then resumes, including while hovering over the new surface.
+          Range loss retains the offset; changes during an outage cannot be
+          classified as steps. Slow slopes and simultaneous vertical motion are
+          ambiguous, and transition errors can accumulate. This does not guarantee
+          drift-free room-relative altitude. Use MPC_ALT_MODE=0 to avoid manual
+          terrain following; optical flow clearance protections still apply.
+      type: float
+      default: 0.0
+      min: 0.0
+      max: 5.0
+      unit: m
+      decimal: 2
+      reboot_required: true
     EKF2_RNG_DELAY:
       description:
         short: Range finder measurement delay relative to IMU measurements

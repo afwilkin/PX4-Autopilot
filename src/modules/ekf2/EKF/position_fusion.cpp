@@ -185,7 +185,7 @@ void Ekf::resetHorizontalPositionTo(const Vector2f &new_pos,
 	resetHorizontalPositionTo(new_latitude, new_longitude, new_horz_pos_var);
 }
 
-void Ekf::resetAltitudeTo(const float new_altitude, float new_vert_pos_var)
+void Ekf::resetAltitudeTo(const float new_altitude, float new_vert_pos_var, bool reset_terrain)
 {
 	const float old_altitude = _gpos.altitude();
 	_gpos.setAltitude(new_altitude);
@@ -226,8 +226,12 @@ void Ekf::resetAltitudeTo(const float new_altitude, float new_vert_pos_var)
 #endif // CONFIG_EKF2_GNSS
 
 #if defined(CONFIG_EKF2_TERRAIN)
-	updateTerrainResetStatus(delta_z);
-	_state.terrain += delta_z;
+
+	if (reset_terrain) {
+		updateTerrainResetStatus(delta_z);
+		_state.terrain += delta_z;
+	}
+
 #endif // CONFIG_EKF2_TERRAIN
 
 	// Reset the timout timer

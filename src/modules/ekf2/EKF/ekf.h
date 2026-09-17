@@ -566,6 +566,15 @@ private:
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	estimator_aid_source1d_s _aid_src_rng_hgt {};
+
+	// The offset itself lives in _state.terrain (positive down), not in the sensor data.
+	bool _rng_step_initialized{false};
+	uint64_t _rng_step_last_sample{0};
+	uint64_t _rng_step_start{0};
+	uint64_t _rng_step_cooldown{0};
+	float _rng_step_prediction{0.f};
+	float _rng_step_candidate{0.f};
+	unsigned _rng_step_count{0};
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)
@@ -778,7 +787,7 @@ private:
 
 	bool isHeightResetRequired() const;
 
-	void resetAltitudeTo(float new_altitude, float new_vert_pos_var = NAN);
+	void resetAltitudeTo(float new_altitude, float new_vert_pos_var = NAN, bool reset_terrain = true);
 	void updateVerticalPositionResetStatus(const float delta_z);
 
 	void resetVerticalVelocityToZero();
@@ -819,6 +828,9 @@ private:
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	// range height
 	void controlRangeHaglFusion(const imuSample &imu_delayed);
+	bool rangeStepEnabled() const;
+	bool updateRangeStep(estimator_aid_source1d_s &aid_src);
+	void resetRangeHeight(const estimator_aid_source1d_s &aid_src);
 	bool isConditionalRangeAidSuitable();
 	void stopRngHgtFusion();
 	void stopRngTerrFusion();

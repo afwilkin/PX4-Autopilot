@@ -49,11 +49,25 @@ void Ekf::controlOpticalFlowFusion(const imuSample &imu_delayed)
 		return;
 	}
 
+	bool range_terrain_datum = (_height_sensor_ref == HeightSensor::RANGE);
+#if defined(CONFIG_EKF2_RANGE_FINDER)
+	range_terrain_datum |= rangeStepEnabled() && _rng_step_initialized;
+#endif
+
 	VectorState H;
 
 	// New optical flow data is available and is ready to be fused when the midpoint of the sample falls behind the fusion time horizon
 	if (_flow_buffer->pop_first_older_than(imu_delayed.time_us, &_flow_sample_delayed)) {
 
+#if defined(CONFIG_EKF2_RANGE_FINDER)
+
+		// Consume but do not fuse samples while their surface scale is uncertain.
+		// Range step confirmation is bounded to 0.5 s and never offsets raw range.
+		if (rangeStepEnabled() && _rng_step_start != 0) {
+			return;
+		}
+
+#endif
 		// flow gyro has opposite sign convention
 		_ref_body_rate = -(imu_delayed.delta_ang / imu_delayed.delta_ang_dt - getGyroBias());
 
@@ -161,7 +175,7 @@ void Ekf::controlOpticalFlowFusion(const imuSample &imu_delayed)
 				&& isTimedOut(_aid_src_optical_flow.time_last_fuse, (uint64_t)2e6); // Prevent rapid switching
 
 		// If the height is relative to the ground, terrain height cannot be observed.
-		_control_status.flags.opt_flow_terrain = _control_status.flags.opt_flow && !(_height_sensor_ref == HeightSensor::RANGE);
+		_control_status.flags.opt_flow_terrain = _control_status.flags.opt_flow && !range_terrain_datum;
 
 		if (_control_status.flags.opt_flow) {
 			if (continuing_conditions_passing) {
@@ -191,7 +205,7 @@ void Ekf::controlOpticalFlowFusion(const imuSample &imu_delayed)
 		} else {
 			if (starting_conditions_passing) {
 				// If the height is relative to the ground, terrain height cannot be observed.
-				_control_status.flags.opt_flow_terrain = (_height_sensor_ref != HeightSensor::RANGE);
+				_control_status.flags.opt_flow_terrain = !range_terrain_datum;
 
 				if (isHorizontalAidingActive()) {
 					if (fuseOptFlow(H, _control_status.flags.opt_flow_terrain)) {
@@ -217,7 +231,7 @@ void Ekf::controlOpticalFlowFusion(const imuSample &imu_delayed)
 					}
 				}
 
-				_control_status.flags.opt_flow_terrain = _control_status.flags.opt_flow && !(_height_sensor_ref == HeightSensor::RANGE);
+				_control_status.flags.opt_flow_terrain = _control_status.flags.opt_flow && !range_terrain_datum;
 			}
 		}
 

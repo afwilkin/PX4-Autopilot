@@ -651,6 +651,7 @@ private:
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 		// range finder fusion
 		(ParamExtInt<px4::params::EKF2_RNG_CTRL>) _param_ekf2_rng_ctrl,
+		(ParamExtFloat<px4::params::EKF2_RNG_STEP>) _param_ekf2_rng_step,
 		(ParamExtFloat<px4::params::EKF2_RNG_DELAY>) _param_ekf2_rng_delay,
 		(ParamExtFloat<px4::params::EKF2_RNG_NOISE>) _param_ekf2_rng_noise,
 		(ParamExtFloat<px4::params::EKF2_RNG_SFE>) _param_ekf2_rng_sfe,

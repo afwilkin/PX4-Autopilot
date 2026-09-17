@@ -78,6 +78,13 @@ void Ekf::reset()
 #endif // CONFIG_EKF2_TERRAIN
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
+	_rng_step_initialized = false;
+	_rng_step_last_sample = 0;
+	_rng_step_start = 0;
+	_rng_step_cooldown = 0;
+	_rng_step_prediction = 0.f;
+	_rng_step_candidate = 0.f;
+	_rng_step_count = 0;
 	_range_sensor.setPitchOffset(_params.ekf2_rng_pitch);
 	_range_sensor.setCosMaxTilt(_params.range_cos_max_tilt);
 	_range_sensor.setQualityHysteresis(_params.ekf2_rng_qlty_t);

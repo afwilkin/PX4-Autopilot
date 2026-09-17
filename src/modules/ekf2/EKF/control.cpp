@@ -109,7 +109,16 @@ void Ekf::controlFusionModes(const imuSample &imu_delayed)
 #endif // CONFIG_EKF2_MAGNETOMETER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)
+#if defined(CONFIG_EKF2_RANGE_FINDER)
+
+	// Detect surface transitions before optical flow uses the terrain scale.
+	if (!rangeStepEnabled()) {
+		controlOpticalFlowFusion(imu_delayed);
+	}
+
+#else
 	controlOpticalFlowFusion(imu_delayed);
+#endif
 #endif // CONFIG_EKF2_OPTICAL_FLOW
 
 #if defined(CONFIG_EKF2_GNSS)
@@ -138,6 +147,14 @@ void Ekf::controlFusionModes(const imuSample &imu_delayed)
 #endif // CONFIG_EKF2_DRAG_FUSION
 
 	controlHeightFusion(imu_delayed);
+
+#if defined(CONFIG_EKF2_OPTICAL_FLOW) && defined(CONFIG_EKF2_RANGE_FINDER)
+
+	if (rangeStepEnabled()) {
+		controlOpticalFlowFusion(imu_delayed);
+	}
+
+#endif
 
 #if defined(CONFIG_EKF2_GRAVITY_FUSION)
 	controlGravityFusion(imu_delayed);
